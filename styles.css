@@ -152,6 +152,61 @@ canvas {
   max-width: 560px;
 }
 
+.leaderboard-box {
+  background: rgba(16, 19, 22, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  max-width: 380px;
+  padding: 12px;
+  width: min(100%, 380px);
+}
+
+.leaderboard-box strong {
+  color: var(--gold);
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.leaderboard-box ol {
+  display: grid;
+  gap: 4px;
+  list-style-position: inside;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.leaderboard-box li,
+.leaderboard-box small {
+  color: #c8d2cd;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.score-save {
+  display: flex;
+  gap: 8px;
+}
+
+.score-save input {
+  background: rgba(9, 12, 13, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: var(--text);
+  flex: 1;
+  font: inherit;
+  min-height: 42px;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.score-save .hidden {
+  display: none;
+}
+
 .level-up {
   align-items: center;
   background: rgba(9, 12, 13, 0.82);
@@ -227,6 +282,11 @@ canvas {
   font-size: 13px;
   line-height: 1.35;
   margin: 0;
+}
+
+.reward.skip {
+  border-color: rgba(255, 209, 102, 0.48);
+  min-height: 104px;
 }
 
 .shop {

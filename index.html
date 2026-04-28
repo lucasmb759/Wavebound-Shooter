@@ -37,6 +37,15 @@
         <div class="overlay" id="overlay">
           <h1>Wavebound</h1>
           <p>WASD to move. Aim with the mouse. Click and hold to fire.</p>
+          <div class="leaderboard-box">
+            <div class="score-save">
+              <input id="playerName" type="text" maxlength="16" placeholder="Name" autocomplete="nickname" />
+              <button id="saveScore" class="hidden">Save Score</button>
+            </div>
+            <strong>Leaderboard</strong>
+            <ol id="leaderboardList"></ol>
+            <small id="leaderboardStatus">Scores save locally unless your site has /api/leaderboard.</small>
+          </div>
           <button id="start">Start Run</button>
         </div>
         <div class="level-up hidden" id="levelUp">

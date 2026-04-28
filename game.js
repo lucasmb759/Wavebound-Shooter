@@ -11,6 +11,10 @@ const ui = {
   waveBonus: document.querySelector("#waveBonus"),
   overlay: document.querySelector("#overlay"),
   start: document.querySelector("#start"),
+  playerName: document.querySelector("#playerName"),
+  saveScore: document.querySelector("#saveScore"),
+  leaderboardList: document.querySelector("#leaderboardList"),
+  leaderboardStatus: document.querySelector("#leaderboardStatus"),
   levelUp: document.querySelector("#levelUp"),
   rewardGrid: document.querySelector("#rewardGrid"),
   rewardInfo: document.querySelector("#rewardInfo"),
@@ -35,6 +39,7 @@ const ui = {
 
 const keys = new Set();
 const mouse = { x: canvas.width / 2, y: canvas.height / 2, down: false };
+const LEADERBOARD_ENDPOINT = window.WAVEBOUND_LEADERBOARD_URL || "/api/leaderboard";
 
 const upgrades = [
   {
@@ -513,8 +518,13 @@ const levelRewards = [
 
 function createRewardLevels() {
   const levels = Object.fromEntries(levelRewards.map((reward) => [reward.id, 0]));
-  levels.pistol = 1;
   return levels;
+}
+
+function createInventoryItem(id, level = 1) {
+  const uid = `${id}-${state?.nextItemUid ?? 0}`;
+  if (state) state.nextItemUid += 1;
+  return { uid, id, level };
 }
 
 const state = {
@@ -527,17 +537,21 @@ const state = {
   level: 1,
   xpToNext: 45,
   kills: 0,
+  finalScore: 0,
+  leaderboard: [],
+  leaderboardOnline: false,
   pendingLevelUps: 0,
   rewardOptionBonus: 0,
   rewardPickBonus: 0,
   rewardPicksRemaining: 0,
   currentRewards: [],
   rewardLevels: createRewardLevels(),
+  nextItemUid: 1,
   inventoryUnlocked: false,
   gunSlots: 2,
   gearSlots: 1,
   bulletSlots: 3,
-  inventory: ["pistol"],
+  inventory: [{ uid: "pistol-0", id: "pistol", level: 1 }],
   bulletUpgrades: [],
   itemCooldowns: {},
   perks: {
@@ -625,17 +639,19 @@ function startRun() {
     level: 1,
     xpToNext: 45,
     kills: 0,
+    finalScore: 0,
     pendingLevelUps: 0,
     rewardOptionBonus: 0,
     rewardPickBonus: 0,
     rewardPicksRemaining: 0,
     currentRewards: [],
     rewardLevels: createRewardLevels(),
+    nextItemUid: 1,
     inventoryUnlocked: false,
     gunSlots: 2,
     gearSlots: 1,
     bulletSlots: 3,
-    inventory: ["pistol"],
+    inventory: [{ uid: "pistol-0", id: "pistol", level: 1 }],
     bulletUpgrades: [],
     itemCooldowns: {},
     perks: {
@@ -678,6 +694,7 @@ function startRun() {
   });
   for (const upgrade of upgrades) state.levels[upgrade.id] = 0;
   ui.overlay.classList.add("hidden");
+  ui.saveScore.classList.add("hidden");
   ui.levelUp.classList.add("hidden");
   ui.shop.classList.remove("open");
   ui.waveBonus.textContent = "";
@@ -857,42 +874,63 @@ function bossShoot(boss) {
     });
   }
 
-  if (bossTier >= 4) {
-    const radialCount = Math.min(14, 6 + Math.floor(bossTier));
-    for (let i = 0; i < radialCount; i += 1) {
-      const angle = (i / radialCount) * Math.PI * 2 + performance.now() * 0.0006;
-      state.bossBullets.push({
-        x: boss.x + Math.cos(angle) * (boss.radius + 8),
-        y: boss.y + Math.sin(angle) * (boss.radius + 8),
-        vx: Math.cos(angle) * (speed * 0.72),
-        vy: Math.sin(angle) * (speed * 0.72),
-        radius: 5 + Math.min(6, bossTier * 0.7),
-        damage: damage * 0.58,
-        color: boss.color,
-        life: 2.4,
-      });
-    }
+  const radialCount = Math.min(18, 7 + Math.floor(bossTier * 1.25));
+  for (let i = 0; i < radialCount; i += 1) {
+    const angle = (i / radialCount) * Math.PI * 2 + performance.now() * 0.0006;
+    state.bossBullets.push({
+      x: boss.x + Math.cos(angle) * (boss.radius + 8),
+      y: boss.y + Math.sin(angle) * (boss.radius + 8),
+      vx: Math.cos(angle) * (speed * 0.72),
+      vy: Math.sin(angle) * (speed * 0.72),
+      radius: 5 + Math.min(6, bossTier * 0.7),
+      damage: damage * 0.5,
+      color: boss.color,
+      life: 2.4,
+    });
   }
   burst(boss.x, boss.y, boss.color, 8);
 }
 
-function getItemLevel(id) {
-  return state.rewardLevels[id] || 0;
+function getItemId(item) {
+  return typeof item === "string" ? item : item.id;
 }
 
-function getItemStats(id) {
+function getItemUid(item) {
+  return typeof item === "string" ? item : item.uid;
+}
+
+function getInventoryEntriesById(id) {
+  return state.inventory.filter((item) => getItemId(item) === id);
+}
+
+function getHighestInventoryLevel(id) {
+  return getInventoryEntriesById(id).reduce((highest, item) => Math.max(highest, getItemLevel(item)), 0);
+}
+
+function syncLoadoutRewardLevel(id) {
+  state.rewardLevels[id] = getHighestInventoryLevel(id);
+}
+
+function getItemLevel(item) {
+  if (typeof item === "object" && item) return item.level || 0;
+  if (loadoutItems[item]) return getHighestInventoryLevel(item);
+  return state.rewardLevels[item] || 0;
+}
+
+function getItemStats(itemId) {
+  const id = getItemId(itemId);
   const item = loadoutItems[id];
-  const level = Math.max(1, getItemLevel(id));
+  const level = Math.max(1, getItemLevel(itemId));
   return item.stats[Math.min(item.stats.length - 1, level - 1)];
 }
 
-function getGunDamage(id) {
-  const weapon = getItemStats(id);
+function getGunDamage(item) {
+  const weapon = getItemStats(item);
   return state.player.damage * weapon.damage * (state.activePowerups.damage ? 2 : 1);
 }
 
-function getGunFireDelay(id) {
-  const weapon = getItemStats(id);
+function getGunFireDelay(item) {
+  const weapon = getItemStats(item);
   const overclockMultiplier = 1 - state.perks.overclock * 0.06;
   return state.player.fireDelay * weapon.fireRate * Math.max(0.58, overclockMultiplier) * (state.activePowerups.rapid ? 0.45 : 1);
 }
@@ -911,7 +949,7 @@ function getPlayerPowerScale() {
   const shopPower = Object.values(state.levels).reduce((sum, level) => sum + level, 0);
   const levelPower = Math.max(0, state.level - 2) * 0.04;
   const loadoutPower =
-    Math.max(0, state.inventory.length - 1) * 0.055 + state.bulletUpgrades.length * 0.045;
+    Math.max(0, state.inventory.length - 1) * 0.055 + state.inventory.reduce((sum, item) => sum + getItemLevel(item), 0) * 0.012 + state.bulletUpgrades.length * 0.045;
   return 1 + Math.min(1.45, levelPower + rewardPower * 0.018 + shopPower * 0.014 + loadoutPower);
 }
 
@@ -948,17 +986,20 @@ function spawnPowerup(x, y, guaranteed = false) {
 function shoot(now) {
   if (!mouse.down) return;
   const angle = Math.atan2(mouse.y - state.player.y, mouse.x - state.player.x);
-  for (const itemId of state.inventory) {
+  for (const inventoryItem of state.inventory) {
+    const itemId = getItemId(inventoryItem);
     const item = loadoutItems[itemId];
     if (item.kind !== "gun") continue;
-    if (now - (state.itemCooldowns[itemId] || 0) < getGunFireDelay(itemId)) continue;
-    shootGun(itemId, angle);
-    state.itemCooldowns[itemId] = now;
+    const cooldownKey = getItemUid(inventoryItem);
+    if (now - (state.itemCooldowns[cooldownKey] || 0) < getGunFireDelay(inventoryItem)) continue;
+    shootGun(inventoryItem, angle);
+    state.itemCooldowns[cooldownKey] = now;
   }
 }
 
-function shootGun(itemId, angle) {
-  const weapon = getItemStats(itemId);
+function shootGun(item, angle) {
+  const itemId = getItemId(item);
+  const weapon = getItemStats(item);
   const pellets = weapon.pellets;
 
   for (let i = 0; i < pellets; i += 1) {
@@ -1013,9 +1054,14 @@ function fireTurretBullet(id, level, target, options) {
   burst(state.player.x, state.player.y, options.color, options.burst);
 }
 
+function getEquippedItem(id) {
+  return state.inventory.find((item) => getItemId(item) === id);
+}
+
 function updateMines(dt) {
-  const mineLevel = getItemLevel("mines");
-  if (mineLevel && state.inventory.includes("mines") && (keys.has("w") || keys.has("a") || keys.has("s") || keys.has("d"))) {
+  const mineItem = getEquippedItem("mines");
+  const mineLevel = getItemLevel(mineItem);
+  if (mineLevel && (keys.has("w") || keys.has("a") || keys.has("s") || keys.has("d"))) {
     state.player.mineTimer -= dt;
     if (state.player.mineTimer <= 0) {
       state.mines.push({
@@ -1031,8 +1077,9 @@ function updateMines(dt) {
     }
   }
 
-  const turretLevel = getItemLevel("turret");
-  if (turretLevel && state.inventory.includes("turret")) {
+  const turretItem = getEquippedItem("turret");
+  const turretLevel = getItemLevel(turretItem);
+  if (turretLevel) {
     state.player.turretTimer -= dt;
     if (state.player.turretTimer <= 0) {
       const target = closestEnemyTo(state.player, 620);
@@ -1053,8 +1100,9 @@ function updateMines(dt) {
     }
   }
 
-  const rocketTurretLevel = getItemLevel("rocketTurret");
-  if (rocketTurretLevel && state.inventory.includes("rocketTurret")) {
+  const rocketTurretItem = getEquippedItem("rocketTurret");
+  const rocketTurretLevel = getItemLevel(rocketTurretItem);
+  if (rocketTurretLevel) {
     state.player.rocketTurretTimer = (state.player.rocketTurretTimer || 0) - dt;
     if (state.player.rocketTurretTimer <= 0) {
       const target = closestEnemyTo(state.player, 680);
@@ -1075,8 +1123,9 @@ function updateMines(dt) {
     }
   }
 
-  const frostTurretLevel = getItemLevel("frostTurret");
-  if (frostTurretLevel && state.inventory.includes("frostTurret")) {
+  const frostTurretItem = getEquippedItem("frostTurret");
+  const frostTurretLevel = getItemLevel(frostTurretItem);
+  if (frostTurretLevel) {
     state.player.frostTurretTimer = (state.player.frostTurretTimer || 0) - dt;
     if (state.player.frostTurretTimer <= 0) {
       const target = closestEnemyTo(state.player, 560);
@@ -1097,8 +1146,9 @@ function updateMines(dt) {
     }
   }
 
-  const ringLevel = getItemLevel("fireRing");
-  if (ringLevel && state.inventory.includes("fireRing")) {
+  const ringItem = getEquippedItem("fireRing");
+  const ringLevel = getItemLevel(ringItem);
+  if (ringLevel) {
     state.player.ringTimer -= dt;
     const ringRadius = 54 + ringLevel * 18;
     if (state.player.ringTimer <= 0) {
@@ -1159,15 +1209,15 @@ function getRewardPickCount() {
 }
 
 function getGunCount() {
-  return state.inventory.filter((id) => loadoutItems[id].kind === "gun").length;
+  return state.inventory.filter((item) => loadoutItems[getItemId(item)].kind === "gun").length;
 }
 
 function getGearCount() {
-  return state.inventory.filter((id) => loadoutItems[id].kind === "gear").length;
+  return state.inventory.filter((item) => loadoutItems[getItemId(item)].kind === "gear").length;
 }
 
 function getLoadoutItemsByKind(kind) {
-  return state.inventory.filter((id) => loadoutItems[id].kind === kind);
+  return state.inventory.filter((item) => loadoutItems[getItemId(item)].kind === kind);
 }
 
 function getLowestLevelLoadoutItem(kind) {
@@ -1179,9 +1229,10 @@ function getLowestLevelBulletUpgrade() {
 }
 
 function clearRemovedItem(id) {
-  state.rewardLevels[id] = 0;
+  const remainingLevel = loadoutItems[id] ? getHighestInventoryLevel(id) : 0;
+  state.rewardLevels[id] = remainingLevel;
   delete state.itemCooldowns[id];
-  if (state.perks[id] !== undefined) state.perks[id] = 0;
+  if (state.perks[id] !== undefined) state.perks[id] = remainingLevel;
   if (id === "mines") state.player.mineTimer = 0;
   if (id === "turret") state.player.turretTimer = 0;
   if (id === "rocketTurret") state.player.rocketTurretTimer = 0;
@@ -1190,18 +1241,19 @@ function clearRemovedItem(id) {
 }
 
 function hasLoadoutSpaceFor(id) {
-  if (!state.inventoryUnlocked) return state.inventory.includes(id);
+  if (!state.inventoryUnlocked) return getInventoryEntriesById(id).length > 0;
   const item = loadoutItems[id];
-  if (state.inventory.includes(id)) return true;
+  if (getInventoryEntriesById(id).some((entry) => getItemLevel(entry) < item.maxLevel)) return true;
   if (item.kind === "gun") return getGunCount() < state.gunSlots;
   if (item.kind === "gear") return getGearCount() < state.gearSlots;
   return true;
 }
 
 function canEquipOrReplaceLoadoutItem(id) {
-  if (!state.inventoryUnlocked) return state.inventory.includes(id);
+  if (!state.inventoryUnlocked) return getInventoryEntriesById(id).length > 0;
   const item = loadoutItems[id];
-  if (state.inventory.includes(id)) return true;
+  if (getInventoryEntriesById(id).some((entry) => getItemLevel(entry) < item.maxLevel)) return true;
+  if (item.kind === "gun" && getInventoryEntriesById(id).some((entry) => getItemLevel(entry) >= item.maxLevel)) return state.gunSlots > 0;
   if (item.kind === "gun") return state.gunSlots > 0;
   if (item.kind === "gear") return state.gearSlots > 0;
   return true;
@@ -1217,31 +1269,51 @@ function canEquipOrReplaceBullet(id) {
   return state.bulletUpgrades.includes(id) || state.bulletSlots > 0;
 }
 
-function equipOrUpgradeItem(id) {
-  if (!state.inventory.includes(id)) {
-    if (!canEquipOrReplaceLoadoutItem(id)) return false;
-    if (!hasLoadoutSpaceFor(id)) {
-      const oldId = getLowestLevelLoadoutItem(loadoutItems[id].kind);
-      state.inventory = state.inventory.filter((itemId) => itemId !== oldId);
-      clearRemovedItem(oldId);
-    }
-    state.inventory.push(id);
+function removeLoadoutItem(uid) {
+  const oldItem = state.inventory.find((item) => getItemUid(item) === uid);
+  if (!oldItem) return;
+  const oldId = getItemId(oldItem);
+  state.inventory = state.inventory.filter((item) => getItemUid(item) !== uid);
+  delete state.itemCooldowns[uid];
+  clearRemovedItem(oldId);
+}
+
+function syncGearPerk(id) {
+  const level = getHighestInventoryLevel(id);
+  if (id === "mines") state.perks.mines = level;
+  if (id === "turret") state.perks.turret = level;
+  if (id === "rocketTurret") state.perks.rocketTurret = level;
+  if (id === "frostTurret") state.perks.frostTurret = level;
+  if (id === "fireRing") state.perks.fireRing = level;
+}
+
+function equipOrUpgradeItem(id, replaceUid = null) {
+  const item = loadoutItems[id];
+  const upgradeTarget = getInventoryEntriesById(id).find((entry) => getItemLevel(entry) < item.maxLevel);
+  if (upgradeTarget) {
+    upgradeTarget.level += 1;
+    syncLoadoutRewardLevel(id);
+    syncGearPerk(id);
+    return true;
   }
 
-  state.rewardLevels[id] += 1;
-  if (id === "mines") state.perks.mines = state.rewardLevels.mines;
-  if (id === "turret") state.perks.turret = state.rewardLevels.turret;
-  if (id === "rocketTurret") state.perks.rocketTurret = state.rewardLevels.rocketTurret;
-  if (id === "frostTurret") state.perks.frostTurret = state.rewardLevels.frostTurret;
-  if (id === "fireRing") state.perks.fireRing = state.rewardLevels.fireRing;
+  if (!canEquipOrReplaceLoadoutItem(id)) return false;
+  if (!hasLoadoutSpaceFor(id)) {
+    if (!replaceUid) return false;
+    removeLoadoutItem(replaceUid);
+  }
+  state.inventory.push(createInventoryItem(id, 1));
+  syncLoadoutRewardLevel(id);
+  syncGearPerk(id);
   return true;
 }
 
-function equipOrUpgradeBullet(id) {
+function equipOrUpgradeBullet(id, replaceId = null) {
   if (!state.bulletUpgrades.includes(id)) {
     if (!canEquipOrReplaceBullet(id)) return false;
     if (!hasBulletSpaceFor(id)) {
-      const oldId = getLowestLevelBulletUpgrade();
+      const oldId = replaceId;
+      if (!oldId) return false;
       state.bulletUpgrades = state.bulletUpgrades.filter((bulletId) => bulletId !== oldId);
       clearRemovedItem(oldId);
     }
@@ -1277,7 +1349,11 @@ function chooseLevelRewards(count) {
     const item = loadoutItems[reward.id];
     const bulletUpgrade = bulletUpgradeIds.has(reward.id);
     const requiresInventory = item || bulletUpgrade;
-    const canLevel = state.rewardLevels[reward.id] < reward.maxLevel;
+    const canLevel = item
+      ? getInventoryEntriesById(reward.id).some((entry) => getItemLevel(entry) < reward.maxLevel) ||
+        (item.kind === "gun" && state.inventoryUnlocked && getInventoryEntriesById(reward.id).some((entry) => getItemLevel(entry) >= reward.maxLevel)) ||
+        getInventoryEntriesById(reward.id).length === 0
+      : state.rewardLevels[reward.id] < reward.maxLevel;
     if (!canLevel) return false;
     if (reward.minWave && state.wave < reward.minWave) return false;
     if (!requiresInventory) return true;
@@ -1300,10 +1376,10 @@ function renderLevelRewards() {
     const bulletUpgrade = bulletUpgradeIds.has(reward.id);
     let itemText = "";
     if (item) {
-      const replacing = !state.inventory.includes(reward.id) && !hasLoadoutSpaceFor(reward.id);
-      const oldId = replacing ? getLowestLevelLoadoutItem(item.kind) : "";
-      const oldName = oldId ? loadoutItems[oldId].name : "";
-      itemText = `${state.inventory.includes(reward.id) ? "Upgrade" : replacing ? `Replace ${oldName}` : "Equip"} - `;
+      const entries = getInventoryEntriesById(reward.id);
+      const upgrading = entries.some((entry) => getItemLevel(entry) < reward.maxLevel);
+      const replacing = !upgrading && !hasLoadoutSpaceFor(reward.id);
+      itemText = `${upgrading ? "Upgrade" : replacing ? "Choose replacement" : entries.length ? "Add copy" : "Equip"} - `;
     } else if (bulletUpgrade) {
       const replacing = !state.bulletUpgrades.includes(reward.id) && !hasBulletSpaceFor(reward.id);
       const oldId = replacing ? getLowestLevelBulletUpgrade() : "";
@@ -1311,17 +1387,92 @@ function renderLevelRewards() {
       itemText = `${state.bulletUpgrades.includes(reward.id) ? "Upgrade" : replacing ? `Replace ${oldName}` : "Equip"} - `;
     }
     card.innerHTML = `
-      <small>${itemText}${reward.type} - Level ${state.rewardLevels[reward.id]}/${reward.maxLevel}</small>
+      <small>${itemText}${reward.type} - Level ${getItemLevel(reward.id)}/${reward.maxLevel}</small>
       <strong>${reward.name}</strong>
       <p>${reward.text}</p>
     `;
     card.addEventListener("click", () => chooseReward(reward));
     ui.rewardGrid.append(card);
   }
+
+  const skip = document.createElement("button");
+  skip.className = "reward skip";
+  skip.innerHTML = `
+    <small>Skip</small>
+    <strong>Skip Reward</strong>
+    <p>Pass on this pick and keep your current build.</p>
+  `;
+  skip.addEventListener("click", skipRewardPick);
+  ui.rewardGrid.append(skip);
 }
 
-function chooseReward(reward) {
-  const applied = reward.apply();
+function skipRewardPick() {
+  state.rewardPicksRemaining -= 1;
+  if (state.rewardPicksRemaining > 0 && state.currentRewards.length > 0) {
+    renderLevelRewards();
+    return;
+  }
+  ui.levelUp.classList.add("hidden");
+  state.pausedForLevelUp = false;
+  if (state.pendingLevelUps > 0) openLevelUp();
+}
+
+function needsReplacement(reward) {
+  const item = loadoutItems[reward.id];
+  if (item) {
+    const upgrading = getInventoryEntriesById(reward.id).some((entry) => getItemLevel(entry) < reward.maxLevel);
+    return !upgrading && !hasLoadoutSpaceFor(reward.id);
+  }
+  if (bulletUpgradeIds.has(reward.id)) return !state.bulletUpgrades.includes(reward.id) && !hasBulletSpaceFor(reward.id);
+  return false;
+}
+
+function renderReplacementChoices(reward) {
+  ui.rewardGrid.innerHTML = "";
+  const item = loadoutItems[reward.id];
+  const loadoutCandidates = item
+    ? getLoadoutItemsByKind(item.kind).filter((entry) => getItemId(entry) !== reward.id)
+    : [];
+  const candidates = item
+    ? loadoutCandidates.map((entry) => ({ key: getItemUid(entry), id: getItemId(entry), level: getItemLevel(entry), type: item.kind }))
+    : state.bulletUpgrades.filter((id) => id !== reward.id).map((id) => ({ key: id, id, level: getItemLevel(id), type: "bullet" }));
+  ui.rewardInfo.textContent = `Choose what ${reward.name} replaces`;
+
+  for (const candidate of candidates) {
+    const card = document.createElement("button");
+    card.className = "reward";
+    const name = loadoutItems[candidate.id]?.name || levelRewards.find((option) => option.id === candidate.id)?.name || candidate.id;
+    card.innerHTML = `
+      <small>Replace - Level ${candidate.level}</small>
+      <strong>${name}</strong>
+      <p>${reward.name} will take this slot. The replaced item returns to the reward pool.</p>
+    `;
+    card.addEventListener("click", () => chooseReward(reward, candidate.key));
+    ui.rewardGrid.append(card);
+  }
+
+  const skip = document.createElement("button");
+  skip.className = "reward skip";
+  skip.innerHTML = `
+    <small>Cancel</small>
+    <strong>Skip Reward</strong>
+    <p>Pass on this pick and keep your current build.</p>
+  `;
+  skip.addEventListener("click", skipRewardPick);
+  ui.rewardGrid.append(skip);
+}
+
+function chooseReward(reward, replacementKey = null) {
+  if (!replacementKey && needsReplacement(reward)) {
+    renderReplacementChoices(reward);
+    return;
+  }
+
+  const applied = loadoutItems[reward.id]
+    ? equipOrUpgradeItem(reward.id, replacementKey)
+    : bulletUpgradeIds.has(reward.id)
+      ? equipOrUpgradeBullet(reward.id, replacementKey)
+      : reward.apply();
   if ((loadoutItems[reward.id] || bulletUpgradeIds.has(reward.id)) && applied === false) return;
   if (!loadoutItems[reward.id] && !bulletUpgradeIds.has(reward.id)) state.rewardLevels[reward.id] += 1;
   state.rewardPicksRemaining -= 1;
@@ -1514,13 +1665,97 @@ function burst(x, y, color, count) {
 function endRun() {
   state.running = false;
   state.pausedForLevelUp = false;
+  state.finalScore = calculateScore();
   ui.start.textContent = "Restart Run";
-  ui.overlay.querySelector("p").textContent = `You reached wave ${state.wave}. Final money: $${Math.floor(
-    state.money,
-  )}.`;
+  ui.overlay.querySelector("p").textContent = `Wave ${state.wave} - Score ${state.finalScore} - Kills ${state.kills}`;
+  ui.saveScore.classList.remove("hidden");
   ui.levelUp.classList.add("hidden");
   ui.overlay.classList.remove("hidden");
   ui.shop.classList.remove("open");
+}
+
+function calculateScore() {
+  return Math.floor(state.wave * 1000 + state.kills * 70 + state.level * 250 + state.money);
+}
+
+function localLeaderboard() {
+  try {
+    return JSON.parse(localStorage.getItem("waveboundLeaderboard") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function setLocalLeaderboard(scores) {
+  localStorage.setItem("waveboundLeaderboard", JSON.stringify(scores.slice(0, 10)));
+}
+
+function normalizeScores(scores) {
+  return [...scores]
+    .filter((score) => score && score.name && Number.isFinite(Number(score.score)))
+    .map((score) => ({ name: String(score.name).slice(0, 16), score: Math.floor(Number(score.score)), wave: Math.floor(Number(score.wave || 0)) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10);
+}
+
+function renderLeaderboard(scores = state.leaderboard) {
+  state.leaderboard = normalizeScores(scores);
+  ui.leaderboardList.innerHTML = "";
+  if (state.leaderboard.length === 0) {
+    const empty = document.createElement("li");
+    empty.textContent = "No scores yet";
+    ui.leaderboardList.append(empty);
+  } else {
+    for (const score of state.leaderboard) {
+      const row = document.createElement("li");
+      row.textContent = `${score.name} - ${score.score} (wave ${score.wave})`;
+      ui.leaderboardList.append(row);
+    }
+  }
+  ui.leaderboardStatus.textContent = state.leaderboardOnline
+    ? "Online leaderboard connected."
+    : "Local scores only. Add /api/leaderboard on your website for cross-device scores.";
+}
+
+async function loadLeaderboard() {
+  const localScores = localLeaderboard();
+  renderLeaderboard(localScores);
+  if (location.protocol === "file:") return;
+  try {
+    const response = await fetch(LEADERBOARD_ENDPOINT);
+    if (!response.ok) throw new Error("Leaderboard unavailable");
+    const scores = await response.json();
+    state.leaderboardOnline = true;
+    renderLeaderboard(scores);
+  } catch {
+    state.leaderboardOnline = false;
+    renderLeaderboard(localScores);
+  }
+}
+
+async function saveLeaderboardScore() {
+  const name = ui.playerName.value.trim().slice(0, 16) || "Player";
+  const score = { name, score: state.finalScore || calculateScore(), wave: state.wave, date: new Date().toISOString() };
+  const localScores = normalizeScores([...localLeaderboard(), score]);
+  setLocalLeaderboard(localScores);
+  ui.saveScore.classList.add("hidden");
+  renderLeaderboard(localScores);
+
+  if (location.protocol === "file:") return;
+  try {
+    const response = await fetch(LEADERBOARD_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(score),
+    });
+    if (!response.ok) throw new Error("Save failed");
+    state.leaderboardOnline = true;
+    const scores = await response.json();
+    renderLeaderboard(scores);
+  } catch {
+    state.leaderboardOnline = false;
+    renderLeaderboard(localScores);
+  }
 }
 
 function drawGrid(size) {
@@ -1714,10 +1949,10 @@ function draw() {
   ctx.fill();
   ctx.fillStyle = "#f3f6f4";
   ctx.fillRect(6, -5, 28, 10);
-  const equippedTurret = state.inventory.find((id) => ["turret", "rocketTurret", "frostTurret"].includes(id));
+  const equippedTurret = state.inventory.find((item) => ["turret", "rocketTurret", "frostTurret"].includes(getItemId(item)));
   if (equippedTurret) {
     ctx.rotate(-aim);
-    drawItemIcon(equippedTurret, 2, -23, 24, getItemLevel(equippedTurret));
+    drawItemIcon(getItemId(equippedTurret), 2, -23, 24, getItemLevel(equippedTurret));
   }
   ctx.restore();
 
@@ -1752,8 +1987,9 @@ function drawMine(mine) {
 }
 
 function drawPlayerGearEffects() {
-  const ringLevel = getItemLevel("fireRing");
-  if (ringLevel && state.inventory.includes("fireRing")) {
+  const ringItem = getEquippedItem("fireRing");
+  const ringLevel = getItemLevel(ringItem);
+  if (ringLevel) {
     const radius = 54 + ringLevel * 18;
     ctx.save();
     ctx.translate(state.player.x, state.player.y);
@@ -1943,7 +2179,8 @@ function drawItemIcon(id, x, y, size, level = 0) {
 function drawInventorySlot(id, x, y, size, type, locked = false) {
   const filled = Boolean(id);
   const level = filled ? getItemLevel(id) : 0;
-  const maxLevel = filled ? levelRewards.find((reward) => reward.id === id)?.maxLevel || loadoutItems[id]?.maxLevel || 1 : 0;
+  const itemId = filled ? getItemId(id) : "";
+  const maxLevel = filled ? levelRewards.find((reward) => reward.id === itemId)?.maxLevel || loadoutItems[itemId]?.maxLevel || 1 : 0;
   ctx.save();
   ctx.translate(x, y);
   ctx.fillStyle = filled ? "rgba(27,33,37,0.92)" : locked ? "rgba(27,33,37,0.34)" : "rgba(27,33,37,0.68)";
@@ -1954,7 +2191,7 @@ function drawInventorySlot(id, x, y, size, type, locked = false) {
   ctx.fill();
   ctx.stroke();
   if (filled) {
-    drawItemIcon(id, 0, -5, size * 0.58, level);
+    drawItemIcon(itemId, 0, -5, size * 0.58, level);
     const pipCount = Math.min(maxLevel, 5);
     const pipGap = size * 0.08;
     const pipWidth = Math.min(8, (size - pipGap * (pipCount + 1)) / pipCount);
@@ -1981,8 +2218,8 @@ function drawInventorySlot(id, x, y, size, type, locked = false) {
 }
 
 function getInventorySlotLayout(size) {
-  const guns = state.inventory.filter((id) => loadoutItems[id].kind === "gun");
-  const gear = state.inventory.filter((id) => loadoutItems[id].kind === "gear");
+  const guns = state.inventory.filter((item) => loadoutItems[getItemId(item)].kind === "gun");
+  const gear = state.inventory.filter((item) => loadoutItems[getItemId(item)].kind === "gear");
   const bulletMods = state.bulletUpgrades;
   const totalSlots = state.gunSlots + state.gearSlots + state.bulletSlots;
   const gap = size.width < 520 ? 6 : 8;
@@ -2015,8 +2252,9 @@ function getInventorySlotLayout(size) {
 }
 
 function getHotbarItemInfo(id, type) {
-  const reward = levelRewards.find((option) => option.id === id);
-  const item = loadoutItems[id];
+  const itemId = getItemId(id);
+  const reward = levelRewards.find((option) => option.id === itemId);
+  const item = loadoutItems[itemId];
   const maxLevel = reward?.maxLevel || item?.maxLevel || 1;
   const typeName = type === "gun" ? "Gun" : type === "gear" ? "Utility" : "Bullet effect";
   return {
@@ -2255,6 +2493,7 @@ canvas.addEventListener("mousemove", (event) => {
 canvas.addEventListener("mousedown", () => (mouse.down = true));
 window.addEventListener("mouseup", () => (mouse.down = false));
 ui.start.addEventListener("click", startRun);
+ui.saveScore.addEventListener("click", saveLeaderboardScore);
 ui.nextWave.addEventListener("click", beginWave);
 ui.settingsToggle.addEventListener("click", () => {
   ui.settingsPanel.classList.toggle("hidden");
@@ -2294,4 +2533,5 @@ ui.devActions.addEventListener("click", (event) => {
 resizeCanvas();
 renderShop();
 updateHud();
+loadLeaderboard();
 requestAnimationFrame(loop);

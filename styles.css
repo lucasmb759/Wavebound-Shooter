@@ -45,6 +45,24 @@ button {
   padding: 0 16px;
 }
 
+.menu-link {
+  align-items: center;
+  border: 1px solid rgba(124, 240, 178, 0.34);
+  border-radius: 6px;
+  color: var(--mint);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 900;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 12px;
+  text-decoration: none;
+}
+
+.menu-link:hover {
+  border-color: rgba(124, 240, 178, 0.72);
+}
+
 button:hover {
   border-color: rgba(124, 240, 178, 0.6);
 }
@@ -242,6 +260,14 @@ canvas {
   margin-top: 4px;
 }
 
+.level-skip {
+  background: rgba(16, 19, 22, 0.9);
+  border-color: rgba(255, 209, 102, 0.55);
+  color: var(--gold);
+  margin-top: 12px;
+  min-height: 34px;
+}
+
 .reward-grid {
   display: grid;
   gap: 12px;
@@ -287,6 +313,49 @@ canvas {
 .reward.skip {
   border-color: rgba(255, 209, 102, 0.48);
   min-height: 104px;
+}
+
+.leaderboard-page {
+  align-content: start;
+  display: grid;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: 720px;
+  min-height: 100%;
+  padding: 28px 16px;
+}
+
+.leaderboard-page h1 {
+  font-size: clamp(42px, 8vw, 82px);
+  line-height: 0.95;
+  margin: 0;
+}
+
+.leaderboard-panel {
+  background: rgba(27, 33, 37, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.leaderboard-panel ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 24px;
+}
+
+.leaderboard-panel li {
+  color: #f3f6f4;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.leaderboard-panel small {
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .shop {

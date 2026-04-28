@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wavebound Leaderboard</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="leaderboard-page">
+      <a class="menu-link" href="index.html">Back to Wavebound</a>
+      <h1>Leaderboard</h1>
+      <section class="leaderboard-panel">
+        <ol id="leaderboardPageList"></ol>
+        <small id="leaderboardPageStatus">Loading scores...</small>
+      </section>
+    </main>
+
+    <script>
+      const endpoint = window.WAVEBOUND_LEADERBOARD_URL || "/api/leaderboard";
+      const list = document.querySelector("#leaderboardPageList");
+      const status = document.querySelector("#leaderboardPageStatus");
+
+      function normalizeScores(scores) {
+        return [...scores]
+          .filter((score) => score && score.name && Number.isFinite(Number(score.score)))
+          .map((score) => ({
+            name: String(score.name).slice(0, 16),
+            score: Math.floor(Number(score.score)),
+            wave: Math.floor(Number(score.wave || 0)),
+          }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 10);
+      }
+
+      function localScores() {
+        try {
+          return JSON.parse(localStorage.getItem("waveboundLeaderboard") || "[]");
+        } catch {
+          return [];
+        }
+      }
+
+      function render(scores, online) {
+        const clean = normalizeScores(scores);
+        list.innerHTML = "";
+        if (clean.length === 0) {
+          const row = document.createElement("li");
+          row.textContent = "No scores yet";
+          list.append(row);
+        } else {
+          for (const score of clean) {
+            const row = document.createElement("li");
+            row.textContent = `${score.name} - ${score.score} (wave ${score.wave})`;
+            list.append(row);
+          }
+        }
+        status.textContent = online
+          ? "Online leaderboard connected."
+          : "This GitHub Pages version can only show scores saved in this browser. Cross-device scores need a hosted backend/database.";
+      }
+
+      async function loadScores() {
+        const local = localScores();
+        render(local, false);
+        if (location.protocol === "file:") return;
+        try {
+          const response = await fetch(endpoint);
+          if (!response.ok) throw new Error("No leaderboard API");
+          render(await response.json(), true);
+        } catch {
+          render(local, false);
+        }
+      }
+
+      loadScores();
+    </script>
+  </body>
+</html>

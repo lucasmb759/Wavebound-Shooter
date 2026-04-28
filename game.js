@@ -18,6 +18,7 @@ const ui = {
   levelUp: document.querySelector("#levelUp"),
   rewardGrid: document.querySelector("#rewardGrid"),
   rewardInfo: document.querySelector("#rewardInfo"),
+  skipReward: document.querySelector("#skipReward"),
   settingsToggle: document.querySelector("#settingsToggle"),
   settingsPanel: document.querySelector("#settingsPanel"),
   autoStartBroke: document.querySelector("#autoStartBroke"),
@@ -2494,6 +2495,7 @@ canvas.addEventListener("mousedown", () => (mouse.down = true));
 window.addEventListener("mouseup", () => (mouse.down = false));
 ui.start.addEventListener("click", startRun);
 ui.saveScore.addEventListener("click", saveLeaderboardScore);
+ui.skipReward.addEventListener("click", skipRewardPick);
 ui.nextWave.addEventListener("click", beginWave);
 ui.settingsToggle.addEventListener("click", () => {
   ui.settingsPanel.classList.toggle("hidden");

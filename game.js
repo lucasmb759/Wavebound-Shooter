@@ -2223,7 +2223,7 @@ function devAction(action) {
 }
 
 function unlockDevTools() {
-  if (ui.devPassword.value === "dev") {
+  if (ui.devPassword.value === "08-27-10") {
     ui.devLock.classList.add("hidden");
     ui.devActions.classList.remove("hidden");
     ui.devError.textContent = "";

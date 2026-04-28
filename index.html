@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wavebound</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hud" aria-label="Game status">
+        <div>
+          <span>Wave</span>
+          <strong id="wave">1</strong>
+        </div>
+        <div>
+          <span>Enemies</span>
+          <strong id="enemies">0</strong>
+        </div>
+        <div>
+          <span>Money</span>
+          <strong id="money">$0</strong>
+        </div>
+        <div>
+          <span>Health</span>
+          <strong id="health">100</strong>
+        </div>
+        <div>
+          <span>Level</span>
+          <strong id="level">1</strong>
+          <small id="xp">0/45 XP</small>
+        </div>
+      </section>
+
+      <section class="game-wrap" aria-label="Wavebound">
+        <canvas id="game" width="1280" height="720"></canvas>
+        <div class="overlay" id="overlay">
+          <h1>Wavebound</h1>
+          <p>WASD to move. Aim with the mouse. Click and hold to fire.</p>
+          <button id="start">Start Run</button>
+        </div>
+        <div class="level-up hidden" id="levelUp">
+          <div class="level-up-head">
+            <span id="rewardInfo">Level Up</span>
+            <strong>Choose a Reward</strong>
+          </div>
+          <div class="reward-grid" id="rewardGrid"></div>
+        </div>
+      </section>
+
+      <aside class="shop" id="shop" aria-label="Shop">
+        <div class="shop-head">
+          <div>
+            <span>Between Waves</span>
+            <strong>Shop</strong>
+            <small id="waveBonus"></small>
+          </div>
+          <button id="nextWave">Next Wave</button>
+        </div>
+        <div class="shop-grid" id="shopGrid"></div>
+      </aside>
+    </main>
+
+    <section class="settings-tools" id="settingsTools" aria-label="Settings">
+      <button class="settings-toggle" id="settingsToggle">Settings</button>
+      <div class="settings-panel hidden" id="settingsPanel">
+        <label>
+          <input id="autoStartBroke" type="checkbox" />
+          Auto-start when broke
+        </label>
+        <label>
+          <input id="autoCollectPowerups" type="checkbox" />
+          Pull powerups closer
+        </label>
+        <label>
+          <input id="showAimLine" type="checkbox" />
+          Show aim line
+        </label>
+        <label>
+          <input id="reduceEffects" type="checkbox" />
+          Reduce effects
+        </label>
+        <label>
+          <input id="hotbarTooltips" type="checkbox" checked />
+          Hotbar tooltips
+        </label>
+      </div>
+    </section>
+
+    <section class="dev-tools" id="devTools" aria-label="Developer tools">
+      <button class="dev-toggle" id="devToggle">Dev</button>
+      <div class="dev-panel hidden" id="devPanel">
+        <div class="dev-lock" id="devLock">
+          <input id="devPassword" type="password" placeholder="Password" autocomplete="off" />
+          <button id="devUnlock">Unlock</button>
+          <small id="devError"></small>
+        </div>
+        <div class="dev-actions hidden" id="devActions">
+          <button data-dev="money">$+1000</button>
+          <button data-dev="xp">XP+</button>
+          <button data-dev="level">Level reward</button>
+          <button data-dev="shop">Shop</button>
+          <button data-dev="boss">Boss wave</button>
+          <button data-dev="clear">Clear wave</button>
+          <button data-dev="heal">Heal</button>
+        </div>
+      </div>
+    </section>
+
+    <script src="game.js"></script>
+  </body>
+</html>

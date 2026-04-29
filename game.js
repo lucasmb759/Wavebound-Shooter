@@ -678,6 +678,7 @@ const state = {
     fireDelay: 190,
     range: 1,
     lastShot: 0,
+    dashCooldown: 0,
     armor: 0,
     magnet: 18,
     mineTimer: 0,
@@ -770,6 +771,7 @@ function startRun() {
     fireDelay: 190,
     range: 1,
     lastShot: 0,
+    dashCooldown: 0,
     armor: 0,
     magnet: 18,
     mineTimer: 0,
@@ -1023,6 +1025,43 @@ function getGunFireDelay(item) {
 
 function getPlayerSpeed() {
   return state.player.speed * (state.activePowerups.haste ? 1.45 : 1);
+}
+
+function currentMoveVector(useMouseFallback = false) {
+  let dx = 0;
+  let dy = 0;
+  if (keys.has("w")) dy -= 1;
+  if (keys.has("s")) dy += 1;
+  if (keys.has("a")) dx -= 1;
+  if (keys.has("d")) dx += 1;
+
+  if (!dx && !dy && useMouseFallback) {
+    dx = mouse.x - state.player.x;
+    dy = mouse.y - state.player.y;
+  }
+
+  const mag = Math.hypot(dx, dy) || 1;
+  return { x: dx / mag, y: dy / mag };
+}
+
+function dashPlayer() {
+  if (
+    !state.running ||
+    state.pausedForShop ||
+    state.pausedForLevelUp ||
+    state.settings.afkMode ||
+    state.player.dashCooldown > 0
+  ) {
+    return;
+  }
+
+  const size = worldSize();
+  const direction = currentMoveVector(true);
+  const distance = 150 + Math.min(70, (getPlayerSpeed() - 310) * 0.18);
+  state.player.x = clamp(state.player.x + direction.x * distance, 20, size.width - 20);
+  state.player.y = clamp(state.player.y + direction.y * distance, 20, size.height - 20);
+  state.player.dashCooldown = 0.85;
+  burst(state.player.x, state.player.y, "#72c7ff", 16);
 }
 
 function getIncomingDamage(damage) {
@@ -1565,20 +1604,21 @@ function chooseReward(reward, replacementKey = null) {
 }
 
 function update(dt, now) {
+  state.player.dashCooldown = Math.max(0, state.player.dashCooldown - dt);
   if (!state.running || state.pausedForShop || state.pausedForLevelUp) return;
   const size = worldSize();
   let dx = 0;
   let dy = 0;
   if (!state.settings.afkMode) {
-    if (keys.has("w")) dy -= 1;
-    if (keys.has("s")) dy += 1;
-    if (keys.has("a")) dx -= 1;
-    if (keys.has("d")) dx += 1;
+    const direction = currentMoveVector();
+    if (keys.has("w") || keys.has("s") || keys.has("a") || keys.has("d")) {
+      dx = direction.x;
+      dy = direction.y;
+    }
   }
-  const mag = Math.hypot(dx, dy) || 1;
   const playerSpeed = getPlayerSpeed();
-  state.player.x = clamp(state.player.x + (dx / mag) * playerSpeed * dt, 20, size.width - 20);
-  state.player.y = clamp(state.player.y + (dy / mag) * playerSpeed * dt, 20, size.height - 20);
+  state.player.x = clamp(state.player.x + dx * playerSpeed * dt, 20, size.width - 20);
+  state.player.y = clamp(state.player.y + dy * playerSpeed * dt, 20, size.height - 20);
 
   shoot(now);
   updateMines(dt);
@@ -2532,6 +2572,123 @@ function ensureRunStarted() {
   if (!state.running) startRun();
 }
 
+function setLateGameBuild() {
+  const lateLevels = {
+    damage: 8,
+    fireRate: 7,
+    range: 5,
+    speed: 5,
+    maxHealth: 6,
+    armor: 4,
+    magnet: 4,
+    rewardOptions: 2,
+    rewardPicks: 1,
+    gunSlot: 3,
+    gearSlot: 3,
+    bulletSlot: 2,
+  };
+  const lateRewards = {
+    shotgun: 3,
+    assault: 3,
+    marksman: 3,
+    repeater: 3,
+    minigun: 2,
+    mines: 3,
+    turret: 3,
+    rocketTurret: 2,
+    fireRing: 3,
+    burn: 4,
+    explosive: 3,
+    ricochet: 3,
+    overclock: 4,
+    vampire: 2,
+    focus: 6,
+    vitality: 5,
+  };
+
+  Object.assign(state, {
+    wave: 30,
+    money: 4500,
+    xp: 0,
+    level: 24,
+    xpToNext: xpNeededForLevel(24),
+    kills: 420,
+    pendingLevelUps: 0,
+    rewardOptionBonus: lateLevels.rewardOptions,
+    rewardPickBonus: lateLevels.rewardPicks,
+    rewardPicksRemaining: 0,
+    currentRewards: [],
+    rewardLevels: createRewardLevels(),
+    nextItemUid: 100,
+    inventoryUnlocked: true,
+    gunSlots: 2 + lateLevels.gunSlot,
+    gearSlots: 1 + lateLevels.gearSlot,
+    bulletSlots: 3 + lateLevels.bulletSlot,
+    inventory: [
+      { uid: "shotgun-late", id: "shotgun", level: 3 },
+      { uid: "assault-late", id: "assault", level: 3 },
+      { uid: "marksman-late", id: "marksman", level: 3 },
+      { uid: "repeater-late", id: "repeater", level: 3 },
+      { uid: "minigun-late", id: "minigun", level: 2 },
+      { uid: "mines-late", id: "mines", level: 3 },
+      { uid: "turret-late", id: "turret", level: 3 },
+      { uid: "rocketTurret-late", id: "rocketTurret", level: 2 },
+      { uid: "fireRing-late", id: "fireRing", level: 3 },
+    ],
+    bulletUpgrades: ["burn", "explosive", "ricochet"],
+    itemCooldowns: {},
+    perks: {
+      burn: lateRewards.burn,
+      explosive: lateRewards.explosive,
+      mines: lateRewards.mines,
+      vampire: lateRewards.vampire,
+      ricochet: lateRewards.ricochet,
+      overclock: lateRewards.overclock,
+      turret: lateRewards.turret,
+      rocketTurret: lateRewards.rocketTurret,
+      frostTurret: 0,
+      fireRing: lateRewards.fireRing,
+    },
+    bullets: [],
+    bossBullets: [],
+    enemies: [],
+    mines: [],
+    powerups: [],
+    activePowerups: {},
+    particles: [],
+  });
+
+  for (const upgrade of upgrades) state.levels[upgrade.id] = lateLevels[upgrade.id] || 0;
+  for (const [id, level] of Object.entries(lateRewards)) state.rewardLevels[id] = level;
+
+  Object.assign(state.player, {
+    x: worldSize().width / 2,
+    y: worldSize().height / 2,
+    speed: 420,
+    health: 345,
+    maxHealth: 345,
+    damage: 120,
+    fireDelay: 116,
+    range: 1.8,
+    lastShot: 0,
+    dashCooldown: 0,
+    armor: 0.24,
+    magnet: 90,
+    mineTimer: 0,
+    turretTimer: 0,
+    rocketTurretTimer: 0,
+    frostTurretTimer: 0,
+    ringTimer: 0,
+  });
+
+  setAfkMode(false);
+  state.pausedForShop = false;
+  state.pausedForLevelUp = false;
+  ui.levelUp.classList.add("hidden");
+  ui.shop.classList.remove("open");
+  beginWave();
+}
+
 function devAction(action) {
   ensureRunStarted();
 
@@ -2561,6 +2718,10 @@ function devAction(action) {
     state.pausedForLevelUp = false;
     ui.levelUp.classList.add("hidden");
     beginWave();
+  }
+
+  if (action === "late") {
+    setLateGameBuild();
   }
 
   if (action === "clear") {
@@ -2598,9 +2759,45 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
+function isTypingTarget(target) {
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName) || target?.isContentEditable;
+}
+
+function gameKey(event) {
+  if (event.code === "ShiftLeft" || event.code === "ShiftRight") return "shift";
+  if (event.code?.startsWith("Key")) return event.code.slice(3).toLowerCase();
+  return event.key.toLowerCase();
+}
+
+function setAfkMode(enabled) {
+  state.settings.afkMode = enabled;
+  ui.afkMode.checked = enabled;
+  keys.clear();
+  mouse.down = false;
+  maybeAutoStartWave();
+}
+
 window.addEventListener("resize", resizeCanvas);
-window.addEventListener("keydown", (event) => keys.add(event.key.toLowerCase()));
-window.addEventListener("keyup", (event) => keys.delete(event.key.toLowerCase()));
+window.addEventListener("keydown", (event) => {
+  if (isTypingTarget(event.target)) return;
+  const key = gameKey(event);
+  if (["w", "a", "s", "d", "r", "shift"].includes(key)) event.preventDefault();
+  if (key === "r" && !event.repeat) {
+    setAfkMode(!state.settings.afkMode);
+    return;
+  }
+  if (key === "shift" && !event.repeat) {
+    dashPlayer();
+    return;
+  }
+  keys.add(key);
+});
+window.addEventListener("keyup", (event) => {
+  if (isTypingTarget(event.target)) return;
+  const key = gameKey(event);
+  if (["w", "a", "s", "d", "r", "shift"].includes(key)) event.preventDefault();
+  keys.delete(key);
+});
 canvas.addEventListener("mousemove", (event) => {
   const rect = canvas.getBoundingClientRect();
   mouse.x = event.clientX - rect.left;
@@ -2619,12 +2816,7 @@ ui.autoStartBroke.addEventListener("change", () => {
   state.settings.autoStartWhenBroke = ui.autoStartBroke.checked;
   maybeAutoStartWave();
 });
-ui.afkMode.addEventListener("change", () => {
-  state.settings.afkMode = ui.afkMode.checked;
-  keys.clear();
-  mouse.down = false;
-  maybeAutoStartWave();
-});
+ui.afkMode.addEventListener("change", () => setAfkMode(ui.afkMode.checked));
 ui.autoCollectPowerups.addEventListener("change", () => {
   state.settings.autoCollectPowerups = ui.autoCollectPowerups.checked;
 });

@@ -36,7 +36,7 @@
         <canvas id="game" width="1280" height="720"></canvas>
         <div class="overlay" id="overlay">
           <h1>Wavebound</h1>
-          <p>WASD to move. Aim with the mouse. Click and hold to fire.</p>
+          <p>WASD to move. Shift to dash. Aim with the mouse. Click and hold to fire.</p>
           <div class="leaderboard-box">
             <div class="score-save">
               <input id="playerName" type="text" maxlength="16" placeholder="Name" autocomplete="nickname" />
@@ -116,13 +116,14 @@
           <button data-dev="level">Level reward</button>
           <button data-dev="shop">Shop</button>
           <button data-dev="boss">Boss wave</button>
+          <button data-dev="late">Late game</button>
           <button data-dev="clear">Clear wave</button>
           <button data-dev="heal">Heal</button>
         </div>
       </div>
     </section>
 
-    <div class="update-badge" aria-label="Update number">Update 001</div>
+    <div class="update-badge" aria-label="Update number">Update 003</div>
 
     <script src="game.js"></script>
   </body>

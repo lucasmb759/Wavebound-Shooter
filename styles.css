@@ -138,6 +138,7 @@ canvas {
   background: #14191b;
   display: block;
   height: 100%;
+  touch-action: none;
   width: 100%;
 }
 
@@ -534,21 +535,74 @@ canvas {
 }
 
 @media (max-width: 820px) {
+  html,
   body {
-    overflow: auto;
+    height: 100dvh;
+    overscroll-behavior: none;
+  }
+
+  body {
+    overflow: hidden;
   }
 
   .shell {
-    min-height: 100%;
+    gap: 6px;
+    height: 100dvh;
+    min-height: 100dvh;
+    padding: 6px;
   }
 
-  .hud,
+  .hud {
+    gap: 4px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .hud div {
+    padding: 5px 6px;
+  }
+
+  .hud span,
+  .hud small {
+    font-size: 9px;
+  }
+
+  .hud strong {
+    font-size: 16px;
+  }
+
+  .overlay {
+    padding: 14px;
+  }
+
+  .overlay h1 {
+    font-size: clamp(38px, 16vw, 68px);
+  }
+
+  .overlay p {
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
+
   .shop-grid,
   .reward-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .game-wrap {
-    min-height: 56vh;
+    min-height: 0;
+  }
+
+  .shop {
+    max-height: 32dvh;
+    overflow: auto;
+  }
+
+  .dev-tools,
+  .settings-tools {
+    bottom: 8px;
+  }
+
+  .update-badge {
+    bottom: 46px;
   }
 }

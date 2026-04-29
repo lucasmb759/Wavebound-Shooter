@@ -41,6 +41,14 @@ const ui = {
 
 const keys = new Set();
 const mouse = { x: canvas.width / 2, y: canvas.height / 2, down: false };
+const mobileControls = {
+  enabled: false,
+  moveId: null,
+  aimId: null,
+  moveOrigin: { x: 0, y: 0 },
+  moveCurrent: { x: 0, y: 0 },
+  moveVector: { x: 0, y: 0 },
+};
 const LEADERBOARD_ENDPOINT = window.WAVEBOUND_LEADERBOARD_URL || "/api/leaderboard";
 
 const upgrades = [
@@ -100,6 +108,15 @@ const upgrades = [
     scale: 1.45,
     apply: () => (state.player.armor += 0.06),
     value: () => `+6% resist`,
+  },
+  {
+    id: "revive",
+    name: "Revive",
+    text: "Survive one death and return with half health.",
+    base: 1000,
+    scale: 2.35,
+    apply: () => (state.revives = 1),
+    value: () => (state.revives ? "owned" : "+1 revive"),
   },
   {
     id: "magnet",
@@ -403,7 +420,7 @@ const loadoutItems = {
   },
 };
 
-const bulletUpgradeIds = new Set(["burn", "explosive", "ricochet"]);
+const bulletUpgradeIds = new Set(["burn", "explosive", "ricochet", "frost", "poison", "shock", "heavy"]);
 
 const levelRewards = [
   {
@@ -510,6 +527,38 @@ const levelRewards = [
     text: "Equip or upgrade splash damage bullets. Uses a bullet mod slot.",
     maxLevel: 3,
     apply: () => equipOrUpgradeBullet("explosive"),
+  },
+  {
+    id: "frost",
+    type: "Ammo",
+    name: "Frost Rounds",
+    text: "Equip or upgrade bullets that slow enemies on hit. Uses a bullet mod slot.",
+    maxLevel: 3,
+    apply: () => equipOrUpgradeBullet("frost"),
+  },
+  {
+    id: "poison",
+    type: "Ammo",
+    name: "Toxic Rounds",
+    text: "Equip or upgrade bullets that add poison damage over time. Uses a bullet mod slot.",
+    maxLevel: 4,
+    apply: () => equipOrUpgradeBullet("poison"),
+  },
+  {
+    id: "shock",
+    type: "Ammo",
+    name: "Shock Rounds",
+    text: "Equip or upgrade bullets that arc damage into nearby enemies. Uses a bullet mod slot.",
+    maxLevel: 3,
+    apply: () => equipOrUpgradeBullet("shock"),
+  },
+  {
+    id: "heavy",
+    type: "Ammo",
+    name: "Heavy Rounds",
+    text: "Equip or upgrade bigger, harder-hitting bullets. Uses a bullet mod slot.",
+    maxLevel: 3,
+    apply: () => equipOrUpgradeBullet("heavy"),
   },
   {
     id: "mines",
@@ -623,6 +672,7 @@ const state = {
   finalScore: 0,
   leaderboard: [],
   leaderboardOnline: false,
+  revives: 0,
   pendingLevelUps: 0,
   rewardOptionBonus: 0,
   rewardPickBonus: 0,
@@ -640,6 +690,10 @@ const state = {
   perks: {
     burn: 0,
     explosive: 0,
+    frost: 0,
+    poison: 0,
+    shock: 0,
+    heavy: 0,
     mines: 0,
     vampire: 0,
     ricochet: 0,
@@ -700,10 +754,22 @@ function resizeCanvas() {
   canvas.width = Math.floor(rect.width * dpr);
   canvas.height = Math.floor(rect.height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  updateDeviceMode();
 }
 
 function worldSize() {
   return canvas.getBoundingClientRect();
+}
+
+function isPhoneMode() {
+  const coarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches;
+  const smallScreen = Math.min(window.innerWidth, window.innerHeight) <= 820;
+  return Boolean(coarsePointer && smallScreen);
+}
+
+function updateDeviceMode() {
+  mobileControls.enabled = isPhoneMode();
+  document.body.classList.toggle("mobile", mobileControls.enabled);
 }
 
 function clamp(value, min, max) {
@@ -726,6 +792,7 @@ function startRun() {
     xpToNext: 45,
     kills: 0,
     finalScore: 0,
+    revives: 0,
     pendingLevelUps: 0,
     rewardOptionBonus: 0,
     rewardPickBonus: 0,
@@ -743,6 +810,10 @@ function startRun() {
     perks: {
       burn: 0,
       explosive: 0,
+      frost: 0,
+      poison: 0,
+      shock: 0,
+      heavy: 0,
       mines: 0,
       vampire: 0,
       ricochet: 0,
@@ -1028,6 +1099,10 @@ function getPlayerSpeed() {
 }
 
 function currentMoveVector(useMouseFallback = false) {
+  if (mobileControls.enabled && (mobileControls.moveVector.x || mobileControls.moveVector.y)) {
+    return { ...mobileControls.moveVector };
+  }
+
   let dx = 0;
   let dy = 0;
   if (keys.has("w")) dy -= 1;
@@ -1130,6 +1205,8 @@ function shootGun(item, angle) {
   const itemId = getItemId(item);
   const weapon = getItemStats(item);
   const pellets = weapon.pellets;
+  const heavyLevel = state.perks.heavy || 0;
+  const speedMultiplier = Math.max(0.76, 1 - heavyLevel * 0.055);
 
   for (let i = 0; i < pellets; i += 1) {
     const offset = pellets === 1 ? 0 : ((i - (pellets - 1) / 2) / Math.max(1, pellets - 1)) * weapon.spread;
@@ -1137,13 +1214,16 @@ function shootGun(item, angle) {
     state.bullets.push({
       x: state.player.x + Math.cos(shotAngle) * 22,
       y: state.player.y + Math.sin(shotAngle) * 22,
-      vx: Math.cos(shotAngle) * weapon.speed,
-      vy: Math.sin(shotAngle) * weapon.speed,
-      radius: state.perks.explosive ? 6 : 5,
-      damage: getGunDamage(item),
+      vx: Math.cos(shotAngle) * weapon.speed * speedMultiplier,
+      vy: Math.sin(shotAngle) * weapon.speed * speedMultiplier,
+      radius: (state.perks.explosive ? 6 : 5) + heavyLevel * 1.2,
+      damage: getGunDamage(item) * (1 + heavyLevel * 0.13),
       pierce: (weapon.pierce || 0) + state.perks.ricochet,
       explosive: state.perks.explosive + (weapon.explosiveBonus || 0),
       burn: state.perks.burn,
+      frost: state.perks.frost,
+      poison: state.perks.poison,
+      shock: state.perks.shock,
       source: itemId,
       hitEnemies: new Set(),
       life: (weapon.life || (itemId === "sniper" ? 1.1 : 0.85)) * state.player.range,
@@ -1166,16 +1246,21 @@ function closestEnemyTo(point, maxRange = Infinity) {
 
 function fireTurretBullet(id, level, target, options) {
   const angle = Math.atan2(target.y - state.player.y, target.x - state.player.x);
+  const heavyLevel = state.perks.heavy || 0;
+  const speedMultiplier = Math.max(0.78, 1 - heavyLevel * 0.045);
   state.bullets.push({
     x: state.player.x + Math.cos(angle) * 20,
     y: state.player.y + Math.sin(angle) * 20,
-    vx: Math.cos(angle) * options.speed,
-    vy: Math.sin(angle) * options.speed,
-    radius: options.radius,
-    damage: options.damage,
+    vx: Math.cos(angle) * options.speed * speedMultiplier,
+    vy: Math.sin(angle) * options.speed * speedMultiplier,
+    radius: options.radius + heavyLevel,
+    damage: options.damage * (1 + heavyLevel * 0.1),
     pierce: options.pierce,
     explosive: options.explosive,
     burn: options.burn,
+    frost: state.perks.frost,
+    poison: state.perks.poison,
+    shock: state.perks.shock,
     source: id,
     hitEnemies: new Set(),
     life: options.life,
@@ -1188,11 +1273,13 @@ function getEquippedItem(id) {
 }
 
 function updateMines(dt) {
-  const mineItem = getEquippedItem("mines");
-  const mineLevel = getItemLevel(mineItem);
-  if (mineLevel && (keys.has("w") || keys.has("a") || keys.has("s") || keys.has("d"))) {
-    state.player.mineTimer -= dt;
-    if (state.player.mineTimer <= 0) {
+  const mineItems = getInventoryEntriesById("mines");
+  for (const mineItem of mineItems) {
+    const mineLevel = getItemLevel(mineItem);
+    const cooldownKey = `gear:${getItemUid(mineItem)}`;
+    if (mineLevel && (keys.has("w") || keys.has("a") || keys.has("s") || keys.has("d"))) {
+      state.itemCooldowns[cooldownKey] = (state.itemCooldowns[cooldownKey] || 0) - dt;
+      if (state.itemCooldowns[cooldownKey] > 0) continue;
       state.mines.push({
         x: state.player.x,
         y: state.player.y,
@@ -1202,15 +1289,16 @@ function updateMines(dt) {
         arm: 0.25,
         life: 7,
       });
-      state.player.mineTimer = Math.max(0.65, 1.9 - mineLevel * 0.38);
+      state.itemCooldowns[cooldownKey] = Math.max(0.65, 1.9 - mineLevel * 0.38);
     }
   }
 
-  const turretItem = getEquippedItem("turret");
-  const turretLevel = getItemLevel(turretItem);
-  if (turretLevel) {
-    state.player.turretTimer -= dt;
-    if (state.player.turretTimer <= 0) {
+  for (const turretItem of getInventoryEntriesById("turret")) {
+    const turretLevel = getItemLevel(turretItem);
+    const cooldownKey = `gear:${getItemUid(turretItem)}`;
+    if (turretLevel) {
+      state.itemCooldowns[cooldownKey] = (state.itemCooldowns[cooldownKey] || 0) - dt;
+      if (state.itemCooldowns[cooldownKey] > 0) continue;
       const target = closestEnemyTo(state.player, 620);
       if (target) {
         fireTurretBullet("turret", turretLevel, target, {
@@ -1225,15 +1313,16 @@ function updateMines(dt) {
           burst: 4,
         });
       }
-      state.player.turretTimer = Math.max(0.24, 0.7 - turretLevel * 0.1);
+      state.itemCooldowns[cooldownKey] = Math.max(0.24, 0.7 - turretLevel * 0.1);
     }
   }
 
-  const rocketTurretItem = getEquippedItem("rocketTurret");
-  const rocketTurretLevel = getItemLevel(rocketTurretItem);
-  if (rocketTurretLevel) {
-    state.player.rocketTurretTimer = (state.player.rocketTurretTimer || 0) - dt;
-    if (state.player.rocketTurretTimer <= 0) {
+  for (const rocketTurretItem of getInventoryEntriesById("rocketTurret")) {
+    const rocketTurretLevel = getItemLevel(rocketTurretItem);
+    const cooldownKey = `gear:${getItemUid(rocketTurretItem)}`;
+    if (rocketTurretLevel) {
+      state.itemCooldowns[cooldownKey] = (state.itemCooldowns[cooldownKey] || 0) - dt;
+      if (state.itemCooldowns[cooldownKey] > 0) continue;
       const target = closestEnemyTo(state.player, 680);
       if (target) {
         fireTurretBullet("rocketTurret", rocketTurretLevel, target, {
@@ -1248,15 +1337,16 @@ function updateMines(dt) {
           burst: 5,
         });
       }
-      state.player.rocketTurretTimer = Math.max(0.55, 1.55 - rocketTurretLevel * 0.22);
+      state.itemCooldowns[cooldownKey] = Math.max(0.55, 1.55 - rocketTurretLevel * 0.22);
     }
   }
 
-  const frostTurretItem = getEquippedItem("frostTurret");
-  const frostTurretLevel = getItemLevel(frostTurretItem);
-  if (frostTurretLevel) {
-    state.player.frostTurretTimer = (state.player.frostTurretTimer || 0) - dt;
-    if (state.player.frostTurretTimer <= 0) {
+  for (const frostTurretItem of getInventoryEntriesById("frostTurret")) {
+    const frostTurretLevel = getItemLevel(frostTurretItem);
+    const cooldownKey = `gear:${getItemUid(frostTurretItem)}`;
+    if (frostTurretLevel) {
+      state.itemCooldowns[cooldownKey] = (state.itemCooldowns[cooldownKey] || 0) - dt;
+      if (state.itemCooldowns[cooldownKey] > 0) continue;
       const target = closestEnemyTo(state.player, 560);
       if (target) {
         fireTurretBullet("frostTurret", frostTurretLevel, target, {
@@ -1271,26 +1361,26 @@ function updateMines(dt) {
           burst: 3,
         });
       }
-      state.player.frostTurretTimer = Math.max(0.18, 0.46 - frostTurretLevel * 0.06);
+      state.itemCooldowns[cooldownKey] = Math.max(0.18, 0.46 - frostTurretLevel * 0.06);
     }
   }
 
-  const ringItem = getEquippedItem("fireRing");
-  const ringLevel = getItemLevel(ringItem);
-  if (ringLevel) {
-    state.player.ringTimer -= dt;
+  for (const ringItem of getInventoryEntriesById("fireRing")) {
+    const ringLevel = getItemLevel(ringItem);
+    const cooldownKey = `gear:${getItemUid(ringItem)}`;
+    if (!ringLevel) continue;
+    state.itemCooldowns[cooldownKey] = (state.itemCooldowns[cooldownKey] || 0) - dt;
     const ringRadius = 54 + ringLevel * 18;
-    if (state.player.ringTimer <= 0) {
-      for (const enemy of state.enemies) {
-        if (distance(enemy, state.player) <= ringRadius + enemy.radius) {
-          enemy.health -= 18 + ringLevel * 16 + state.wave * 2.4;
-          enemy.burnTime = Math.max(enemy.burnTime, 1.6);
-          enemy.burnDamage = Math.max(enemy.burnDamage, 6 + ringLevel * 5);
-        }
+    if (state.itemCooldowns[cooldownKey] > 0) continue;
+    for (const enemy of state.enemies) {
+      if (distance(enemy, state.player) <= ringRadius + enemy.radius) {
+        enemy.health -= 18 + ringLevel * 16 + state.wave * 2.4;
+        enemy.burnTime = Math.max(enemy.burnTime, 1.6);
+        enemy.burnDamage = Math.max(enemy.burnDamage, 6 + ringLevel * 5);
       }
-      burst(state.player.x, state.player.y, "#ff9f43", 8);
-      state.player.ringTimer = Math.max(0.18, 0.55 - ringLevel * 0.07);
     }
+    burst(state.player.x, state.player.y, "#ff9f43", 8);
+    state.itemCooldowns[cooldownKey] = Math.max(0.18, 0.55 - ringLevel * 0.07);
   }
 
   for (const mine of state.mines) {
@@ -1312,6 +1402,23 @@ function explode(x, y, radius, damage) {
       const falloff = 1 - Math.min(0.75, blastDistance / (radius + enemy.radius));
       enemy.health -= damage * falloff;
     }
+  }
+}
+
+function chainShock(bullet, firstEnemy) {
+  const level = bullet.shock || 0;
+  if (!level) return;
+  const radius = 88 + level * 28;
+  const damage = bullet.damage * (0.22 + level * 0.08);
+  const targets = state.enemies
+    .filter((enemy) => enemy !== firstEnemy && !bullet.hitEnemies.has(enemy) && distance(enemy, firstEnemy) <= radius + enemy.radius)
+    .sort((a, b) => distance(a, firstEnemy) - distance(b, firstEnemy))
+    .slice(0, level + 1);
+
+  for (const target of targets) {
+    target.health -= damage;
+    bullet.hitEnemies.add(target);
+    burst(target.x, target.y, "#72c7ff", 6);
   }
 }
 
@@ -1404,6 +1511,7 @@ function removeLoadoutItem(uid) {
   const oldId = getItemId(oldItem);
   state.inventory = state.inventory.filter((item) => getItemUid(item) !== uid);
   delete state.itemCooldowns[uid];
+  delete state.itemCooldowns[`gear:${uid}`];
   clearRemovedItem(oldId);
 }
 
@@ -1480,7 +1588,7 @@ function chooseLevelRewards(count) {
     const requiresInventory = item || bulletUpgrade;
     const canLevel = item
       ? getInventoryEntriesById(reward.id).some((entry) => getItemLevel(entry) < reward.maxLevel) ||
-        (item.kind === "gun" && state.inventoryUnlocked && getInventoryEntriesById(reward.id).some((entry) => getItemLevel(entry) >= reward.maxLevel)) ||
+        (state.inventoryUnlocked && getInventoryEntriesById(reward.id).some((entry) => getItemLevel(entry) >= reward.maxLevel)) ||
         getInventoryEntriesById(reward.id).length === 0
       : state.rewardLevels[reward.id] < reward.maxLevel;
     if (!canLevel) return false;
@@ -1586,11 +1694,10 @@ function chooseReward(reward, replacementKey = null) {
   if (!loadoutItems[reward.id] && !bulletUpgradeIds.has(reward.id)) state.rewardLevels[reward.id] += 1;
   state.rewardPicksRemaining -= 1;
   state.currentRewards = state.currentRewards.filter((option) => {
-    if (option.id === reward.id) return false;
     const item = loadoutItems[option.id];
     if (item) return canEquipOrReplaceLoadoutItem(option.id);
-    if (bulletUpgradeIds.has(option.id)) return canEquipOrReplaceBullet(option.id);
-    return true;
+    if (bulletUpgradeIds.has(option.id)) return state.rewardLevels[option.id] < option.maxLevel && canEquipOrReplaceBullet(option.id);
+    return state.rewardLevels[option.id] < option.maxLevel;
   });
 
   if (state.rewardPicksRemaining > 0 && state.currentRewards.length > 0) {
@@ -1651,7 +1758,7 @@ function update(dt, now) {
       state.player.health -= getIncomingDamage(bullet.damage);
       bullet.life = 0;
       burst(state.player.x, state.player.y, bullet.color, 10);
-      if (state.player.health <= 0) endRun();
+      if (state.player.health <= 0 && !useRevive()) endRun();
     }
   }
   state.bossBullets = state.bossBullets.filter((bullet) => bullet.life > 0);
@@ -1661,10 +1768,16 @@ function update(dt, now) {
       enemy.health -= enemy.burnDamage * dt;
       enemy.burnTime -= dt;
     }
+    if (enemy.poisonTime > 0) {
+      enemy.health -= enemy.poisonDamage * dt;
+      enemy.poisonTime -= dt;
+    }
+    if (enemy.slowTime > 0) enemy.slowTime -= dt;
 
     const angle = Math.atan2(state.player.y - enemy.y, state.player.x - enemy.x);
-    enemy.x += Math.cos(angle) * enemy.speed * dt;
-    enemy.y += Math.sin(angle) * enemy.speed * dt;
+    const speedMultiplier = enemy.slowTime > 0 ? enemy.slowMultiplier || 0.7 : 1;
+    enemy.x += Math.cos(angle) * enemy.speed * speedMultiplier * dt;
+    enemy.y += Math.sin(angle) * enemy.speed * speedMultiplier * dt;
     enemy.hitCooldown -= dt;
 
     if (enemy.boss) {
@@ -1686,7 +1799,7 @@ function update(dt, now) {
       state.player.health -= getIncomingDamage(enemy.damage);
       enemy.hitCooldown = 0.55;
       burst(state.player.x, state.player.y, "#ff5d68", 8);
-      if (state.player.health <= 0) endRun();
+      if (state.player.health <= 0 && !useRevive()) endRun();
     }
   }
 
@@ -1700,7 +1813,16 @@ function update(dt, now) {
           enemy.burnTime = Math.max(enemy.burnTime, 2.6);
           enemy.burnDamage = Math.max(enemy.burnDamage, 7 + bullet.burn * 5 + state.wave * 0.8);
         }
+        if (bullet.frost) {
+          enemy.slowTime = Math.max(enemy.slowTime || 0, 1.35 + bullet.frost * 0.28);
+          enemy.slowMultiplier = Math.min(enemy.slowMultiplier || 1, Math.max(0.46, 0.82 - bullet.frost * 0.1));
+        }
+        if (bullet.poison) {
+          enemy.poisonTime = Math.max(enemy.poisonTime || 0, 3 + bullet.poison * 0.5);
+          enemy.poisonDamage = Math.max(enemy.poisonDamage || 0, 5 + bullet.poison * 4.5 + state.wave * 0.55);
+        }
         if (bullet.explosive) explode(bullet.x, bullet.y, 46 + bullet.explosive * 12, bullet.damage * (0.32 + bullet.explosive * 0.08));
+        if (bullet.shock) chainShock(bullet, enemy);
         bullet.pierce -= 1;
         if (bullet.pierce < 0) bullet.life = 0;
         burst(bullet.x, bullet.y, "#ffd166", 5);
@@ -1772,6 +1894,22 @@ function burst(x, y, color, count) {
       life: 0.25 + Math.random() * 0.35,
     });
   }
+}
+
+function useRevive() {
+  if (state.revives <= 0) return false;
+  state.revives = 0;
+  state.player.health = Math.max(1, Math.ceil(state.player.maxHealth * 0.5));
+  state.bossBullets = [];
+  for (const enemy of state.enemies) {
+    const pushDistance = Math.max(1, distance(enemy, state.player));
+    enemy.x += ((enemy.x - state.player.x) / pushDistance) * 90;
+    enemy.y += ((enemy.y - state.player.y) / pushDistance) * 90;
+    enemy.hitCooldown = Math.max(enemy.hitCooldown, 0.8);
+  }
+  burst(state.player.x, state.player.y, "#7cf0b2", 34);
+  updateHud();
+  return true;
 }
 
 function endRun() {
@@ -2070,6 +2208,7 @@ function draw() {
 
   drawInventorySlots(size);
   drawActivePowerups();
+  drawMobileControls(size);
 }
 
 function drawWaveCleared(size) {
@@ -2302,6 +2441,44 @@ function drawItemIcon(id, x, y, size, level = 0) {
     }
     ctx.closePath();
     ctx.fill();
+  } else if (id === "frost") {
+    ctx.strokeStyle = "#72c7ff";
+    ctx.beginPath();
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (i / 6) * Math.PI * 2;
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(angle) * half * 0.62, Math.sin(angle) * half * 0.62);
+    }
+    ctx.stroke();
+  } else if (id === "poison") {
+    ctx.fillStyle = "#7cf0b2";
+    ctx.beginPath();
+    ctx.arc(-half * 0.18, half * 0.05, half * 0.28, 0, Math.PI * 2);
+    ctx.arc(half * 0.22, -half * 0.12, half * 0.36, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#101316";
+    ctx.beginPath();
+    ctx.arc(half * 0.12, -half * 0.12, half * 0.08, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (id === "shock") {
+    ctx.strokeStyle = "#72c7ff";
+    ctx.beginPath();
+    ctx.moveTo(-half * 0.12, -half * 0.68);
+    ctx.lineTo(-half * 0.42, -half * 0.05);
+    ctx.lineTo(half * 0.02, -half * 0.05);
+    ctx.lineTo(-half * 0.18, half * 0.68);
+    ctx.lineTo(half * 0.46, -half * 0.2);
+    ctx.lineTo(half * 0.06, -half * 0.2);
+    ctx.stroke();
+  } else if (id === "heavy") {
+    ctx.fillStyle = "#f3f6f4";
+    ctx.beginPath();
+    ctx.arc(0, 0, half * 0.52, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#ffd166";
+    ctx.beginPath();
+    ctx.arc(0, 0, half * 0.32, 0, Math.PI * 2);
+    ctx.stroke();
   } else if (id === "ricochet") {
     ctx.strokeStyle = "#7cf0b2";
     ctx.beginPath();
@@ -2499,11 +2676,92 @@ function drawActivePowerups() {
   ctx.restore();
 }
 
+function getMobileControlLayout(size) {
+  const base = Math.max(58, Math.min(82, size.width * 0.17));
+  const bottom = size.width < 520 ? 74 : 26;
+  return {
+    stick: {
+      x: 22 + base,
+      y: size.height - bottom - base,
+      radius: base,
+      knobRadius: base * 0.38,
+    },
+    dash: {
+      x: size.width - 92,
+      y: size.height - bottom - 104,
+      width: 72,
+      height: 42,
+      label: "Dash",
+    },
+    afk: {
+      x: size.width - 92,
+      y: size.height - bottom - 154,
+      width: 72,
+      height: 42,
+      label: "AFK",
+    },
+    fire: {
+      x: size.width - 58,
+      y: size.height - bottom - 36,
+      radius: 38,
+    },
+  };
+}
+
+function drawMobileControls(size) {
+  if (!mobileControls.enabled) return;
+  const layout = getMobileControlLayout(size);
+  ctx.save();
+  ctx.globalAlpha = 0.88;
+
+  ctx.fillStyle = "rgba(16,19,22,0.58)";
+  ctx.strokeStyle = "rgba(124,240,178,0.48)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(layout.stick.x, layout.stick.y, layout.stick.radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  const knobX = layout.stick.x + mobileControls.moveVector.x * layout.stick.radius * 0.55;
+  const knobY = layout.stick.y + mobileControls.moveVector.y * layout.stick.radius * 0.55;
+  ctx.fillStyle = "rgba(124,240,178,0.72)";
+  ctx.beginPath();
+  ctx.arc(knobX, knobY, layout.stick.knobRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  for (const button of [layout.afk, layout.dash]) {
+    ctx.fillStyle = button === layout.afk && state.settings.afkMode ? "rgba(124,240,178,0.62)" : "rgba(16,19,22,0.72)";
+    ctx.strokeStyle = button === layout.afk ? "rgba(124,240,178,0.72)" : "rgba(114,199,255,0.72)";
+    ctx.beginPath();
+    ctx.roundRect(button.x, button.y, button.width, button.height, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#f3f6f4";
+    ctx.font = "900 12px Inter, system-ui";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(button.label, button.x + button.width / 2, button.y + button.height / 2);
+  }
+
+  ctx.fillStyle = mouse.down ? "rgba(255,209,102,0.76)" : "rgba(16,19,22,0.7)";
+  ctx.strokeStyle = "rgba(255,209,102,0.72)";
+  ctx.beginPath();
+  ctx.arc(layout.fire.x, layout.fire.y, layout.fire.radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#f3f6f4";
+  ctx.font = "900 12px Inter, system-ui";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("Fire", layout.fire.x, layout.fire.y);
+  ctx.restore();
+}
+
 function updateHud() {
   ui.wave.textContent = state.wave;
   ui.enemies.textContent = state.enemies.length + state.spawnLeft;
   ui.money.textContent = `$${Math.floor(state.money)}`;
-  ui.health.textContent = `${Math.max(0, Math.ceil(state.player.health))}/${state.player.maxHealth}`;
+  ui.health.textContent = `${Math.max(0, Math.ceil(state.player.health))}/${state.player.maxHealth}${state.revives ? " + Revive" : ""}`;
   ui.level.textContent = state.level;
   ui.xp.textContent = `${Math.floor(state.xp)}/${state.xpToNext} XP`;
 }
@@ -2517,6 +2775,7 @@ function isShopUpgradeLocked(upgrade) {
 }
 
 function isShopUpgradeCapped(upgrade) {
+  if (upgrade.id === "revive") return state.revives >= 1;
   return Boolean(upgrade.maxLevel && state.levels[upgrade.id] >= upgrade.maxLevel);
 }
 
@@ -2547,13 +2806,14 @@ function renderShop() {
     const cost = upgradeCost(upgrade);
     const capped = isShopUpgradeCapped(upgrade);
     const locked = isShopUpgradeLocked(upgrade);
+    const buttonText = locked ? "Unlocks after wave 5" : capped && upgrade.id === "revive" ? "Revive ready" : capped ? "Maxed" : `Buy $${cost}`;
     const card = document.createElement("article");
     card.className = "upgrade";
     card.innerHTML = `
       <small>Level ${level}${upgrade.maxLevel ? `/${upgrade.maxLevel}` : ""}</small>
       <h2>${upgrade.name}</h2>
       <p>${upgrade.text} <strong>${upgrade.value()}</strong></p>
-      <button ${locked || capped || state.money < cost ? "disabled" : ""}>${locked ? "Unlocks after wave 5" : capped ? "Maxed" : `Buy $${cost}`}</button>
+      <button ${locked || capped || state.money < cost ? "disabled" : ""}>${buttonText}</button>
     `;
     card.querySelector("button").addEventListener("click", () => {
       if (locked || capped || state.money < cost) return;
@@ -2586,6 +2846,7 @@ function setLateGameBuild() {
     gunSlot: 3,
     gearSlot: 3,
     bulletSlot: 2,
+    revive: 2,
   };
   const lateRewards = {
     shotgun: 3,
@@ -2599,6 +2860,8 @@ function setLateGameBuild() {
     fireRing: 3,
     burn: 4,
     explosive: 3,
+    frost: 3,
+    shock: 2,
     ricochet: 3,
     overclock: 4,
     vampire: 2,
@@ -2613,6 +2876,7 @@ function setLateGameBuild() {
     level: 24,
     xpToNext: xpNeededForLevel(24),
     kills: 420,
+    revives: 1,
     pendingLevelUps: 0,
     rewardOptionBonus: lateLevels.rewardOptions,
     rewardPickBonus: lateLevels.rewardPicks,
@@ -2635,11 +2899,15 @@ function setLateGameBuild() {
       { uid: "rocketTurret-late", id: "rocketTurret", level: 2 },
       { uid: "fireRing-late", id: "fireRing", level: 3 },
     ],
-    bulletUpgrades: ["burn", "explosive", "ricochet"],
+    bulletUpgrades: ["burn", "explosive", "frost", "shock", "ricochet"],
     itemCooldowns: {},
     perks: {
       burn: lateRewards.burn,
       explosive: lateRewards.explosive,
+      frost: lateRewards.frost,
+      poison: 0,
+      shock: lateRewards.shock,
+      heavy: 0,
       mines: lateRewards.mines,
       vampire: lateRewards.vampire,
       ricochet: lateRewards.ricochet,
@@ -2773,8 +3041,100 @@ function setAfkMode(enabled) {
   state.settings.afkMode = enabled;
   ui.afkMode.checked = enabled;
   keys.clear();
+  mobileControls.moveVector = { x: 0, y: 0 };
+  mobileControls.moveId = null;
   mouse.down = false;
   maybeAutoStartWave();
+}
+
+function canvasPointFromTouch(touch) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+}
+
+function pointInRect(point, rect) {
+  return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
+}
+
+function pointInCircle(point, circle) {
+  return distance(point, circle) <= circle.radius;
+}
+
+function updateMobileMove(point) {
+  mobileControls.moveCurrent = point;
+  const dx = point.x - mobileControls.moveOrigin.x;
+  const dy = point.y - mobileControls.moveOrigin.y;
+  const mag = Math.hypot(dx, dy);
+  const max = getMobileControlLayout(worldSize()).stick.radius * 0.72;
+  if (mag < 8) {
+    mobileControls.moveVector = { x: 0, y: 0 };
+    return;
+  }
+  mobileControls.moveVector = {
+    x: dx / Math.max(max, mag),
+    y: dy / Math.max(max, mag),
+  };
+}
+
+function handleMobileTouchStart(event) {
+  if (!mobileControls.enabled) return;
+  event.preventDefault();
+  const size = worldSize();
+  const layout = getMobileControlLayout(size);
+
+  for (const touch of event.changedTouches) {
+    const point = canvasPointFromTouch(touch);
+    if (pointInRect(point, layout.dash)) {
+      dashPlayer();
+      continue;
+    }
+    if (pointInRect(point, layout.afk)) {
+      setAfkMode(!state.settings.afkMode);
+      continue;
+    }
+    if (pointInCircle(point, layout.fire) || point.x > size.width * 0.52) {
+      mobileControls.aimId = touch.identifier;
+      mouse.down = true;
+      mouse.x = point.x;
+      mouse.y = point.y;
+      continue;
+    }
+    if (!state.settings.afkMode && mobileControls.moveId === null) {
+      mobileControls.moveId = touch.identifier;
+      mobileControls.moveOrigin = point;
+      mobileControls.moveCurrent = point;
+      mobileControls.moveVector = { x: 0, y: 0 };
+    }
+  }
+}
+
+function handleMobileTouchMove(event) {
+  if (!mobileControls.enabled) return;
+  event.preventDefault();
+  for (const touch of event.changedTouches) {
+    const point = canvasPointFromTouch(touch);
+    if (touch.identifier === mobileControls.moveId) updateMobileMove(point);
+    if (touch.identifier === mobileControls.aimId) {
+      mouse.x = point.x;
+      mouse.y = point.y;
+      mouse.down = true;
+    }
+  }
+}
+
+function handleMobileTouchEnd(event) {
+  if (!mobileControls.enabled) return;
+  event.preventDefault();
+  for (const touch of event.changedTouches) {
+    if (touch.identifier === mobileControls.moveId) {
+      mobileControls.moveId = null;
+      mobileControls.moveVector = { x: 0, y: 0 };
+    }
+    if (touch.identifier === mobileControls.aimId) {
+      mobileControls.aimId = null;
+      mouse.down = false;
+    }
+  }
 }
 
 window.addEventListener("resize", resizeCanvas);
@@ -2805,6 +3165,10 @@ canvas.addEventListener("mousemove", (event) => {
 });
 canvas.addEventListener("mousedown", () => (mouse.down = true));
 window.addEventListener("mouseup", () => (mouse.down = false));
+canvas.addEventListener("touchstart", handleMobileTouchStart, { passive: false });
+canvas.addEventListener("touchmove", handleMobileTouchMove, { passive: false });
+canvas.addEventListener("touchend", handleMobileTouchEnd, { passive: false });
+canvas.addEventListener("touchcancel", handleMobileTouchEnd, { passive: false });
 ui.start.addEventListener("click", startRun);
 ui.saveScore.addEventListener("click", saveLeaderboardScore);
 ui.skipReward.addEventListener("click", skipRewardPick);

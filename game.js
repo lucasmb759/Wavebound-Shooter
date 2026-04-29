@@ -22,6 +22,7 @@ const ui = {
   settingsToggle: document.querySelector("#settingsToggle"),
   settingsPanel: document.querySelector("#settingsPanel"),
   autoStartBroke: document.querySelector("#autoStartBroke"),
+  afkMode: document.querySelector("#afkMode"),
   autoCollectPowerups: document.querySelector("#autoCollectPowerups"),
   showAimLine: document.querySelector("#showAimLine"),
   reduceEffects: document.querySelector("#reduceEffects"),
@@ -60,6 +61,15 @@ const upgrades = [
     scale: 1.38,
     apply: () => (state.player.fireDelay *= 0.92),
     value: () => `+8% attack speed`,
+  },
+  {
+    id: "range",
+    name: "Range",
+    text: "Shots travel farther before fading.",
+    base: 70,
+    scale: 1.37,
+    apply: () => (state.player.range += 0.16),
+    value: () => `+16% range`,
   },
   {
     id: "speed",
@@ -305,6 +315,46 @@ const loadoutItems = {
       { pellets: 5, spread: 0.2, speed: 940, damage: 0.88, fireRate: 0.78 },
     ],
   },
+  assault: {
+    kind: "gun",
+    name: "Assault Rifle",
+    maxLevel: 3,
+    stats: [
+      { pellets: 1, spread: 0.05, speed: 900, damage: 0.9, fireRate: 0.62, life: 0.95 },
+      { pellets: 1, spread: 0.045, speed: 950, damage: 1.02, fireRate: 0.52, life: 1 },
+      { pellets: 2, spread: 0.1, speed: 990, damage: 0.86, fireRate: 0.44, life: 1.05 },
+    ],
+  },
+  repeater: {
+    kind: "gun",
+    name: "Repeater",
+    maxLevel: 3,
+    stats: [
+      { pellets: 2, spread: 0.09, speed: 820, damage: 0.7, fireRate: 0.78, life: 0.9 },
+      { pellets: 3, spread: 0.12, speed: 860, damage: 0.72, fireRate: 0.68, life: 0.95 },
+      { pellets: 4, spread: 0.16, speed: 900, damage: 0.74, fireRate: 0.58, life: 1 },
+    ],
+  },
+  marksman: {
+    kind: "gun",
+    name: "Marksman Rifle",
+    maxLevel: 3,
+    stats: [
+      { pellets: 1, spread: 0.01, speed: 1020, damage: 1.65, fireRate: 1.08, pierce: 1, life: 1.15 },
+      { pellets: 1, spread: 0.01, speed: 1100, damage: 2.05, fireRate: 0.94, pierce: 2, life: 1.22 },
+      { pellets: 2, spread: 0.06, speed: 1160, damage: 1.72, fireRate: 0.86, pierce: 2, life: 1.28 },
+    ],
+  },
+  scatterLaser: {
+    kind: "gun",
+    name: "Scatter Laser",
+    maxLevel: 3,
+    stats: [
+      { pellets: 3, spread: 0.24, speed: 980, damage: 0.58, fireRate: 0.72, pierce: 1, life: 0.72 },
+      { pellets: 4, spread: 0.28, speed: 1040, damage: 0.62, fireRate: 0.62, pierce: 1, life: 0.78 },
+      { pellets: 5, spread: 0.32, speed: 1100, damage: 0.66, fireRate: 0.54, pierce: 2, life: 0.84 },
+    ],
+  },
   cannon: {
     kind: "gun",
     name: "Hand Cannon",
@@ -395,6 +445,38 @@ const levelRewards = [
     text: "Add or upgrade accurate burst fire for mid-range damage.",
     maxLevel: 3,
     apply: () => equipOrUpgradeItem("burst"),
+  },
+  {
+    id: "assault",
+    type: "Gun",
+    name: "Assault Rifle",
+    text: "Add or upgrade steady automatic rifle fire with solid range.",
+    maxLevel: 3,
+    apply: () => equipOrUpgradeItem("assault"),
+  },
+  {
+    id: "repeater",
+    type: "Gun",
+    name: "Repeater",
+    text: "Add or upgrade a multi-shot rifle that stacks more barrels each level.",
+    maxLevel: 3,
+    apply: () => equipOrUpgradeItem("repeater"),
+  },
+  {
+    id: "marksman",
+    type: "Gun",
+    name: "Marksman Rifle",
+    text: "Add or upgrade a precise piercing rifle between pistol and sniper.",
+    maxLevel: 3,
+    apply: () => equipOrUpgradeItem("marksman"),
+  },
+  {
+    id: "scatterLaser",
+    type: "Gun",
+    name: "Scatter Laser",
+    text: "Add or upgrade fast piercing spread shots for close and mid range.",
+    maxLevel: 3,
+    apply: () => equipOrUpgradeItem("scatterLaser"),
   },
   {
     id: "cannon",
@@ -576,6 +658,7 @@ const state = {
   particles: [],
   settings: {
     autoStartWhenBroke: false,
+    afkMode: false,
     autoCollectPowerups: false,
     showAimLine: false,
     reduceEffects: false,
@@ -593,6 +676,7 @@ const state = {
     maxHealth: 100,
     damage: 24,
     fireDelay: 190,
+    range: 1,
     lastShot: 0,
     armor: 0,
     magnet: 18,
@@ -684,6 +768,7 @@ function startRun() {
     maxHealth: 100,
     damage: 24,
     fireDelay: 190,
+    range: 1,
     lastShot: 0,
     armor: 0,
     magnet: 18,
@@ -985,8 +1070,12 @@ function spawnPowerup(x, y, guaranteed = false) {
 }
 
 function shoot(now) {
-  if (!mouse.down) return;
-  const angle = Math.atan2(mouse.y - state.player.y, mouse.x - state.player.x);
+  const target = state.settings.afkMode ? closestEnemyTo(state.player) : null;
+  if (state.settings.afkMode && !target) return;
+  if (!target && !mouse.down) return;
+  const angle = target
+    ? Math.atan2(target.y - state.player.y, target.x - state.player.x)
+    : Math.atan2(mouse.y - state.player.y, mouse.x - state.player.x);
   for (const inventoryItem of state.inventory) {
     const itemId = getItemId(inventoryItem);
     const item = loadoutItems[itemId];
@@ -1012,13 +1101,13 @@ function shootGun(item, angle) {
       vx: Math.cos(shotAngle) * weapon.speed,
       vy: Math.sin(shotAngle) * weapon.speed,
       radius: state.perks.explosive ? 6 : 5,
-      damage: getGunDamage(itemId),
+      damage: getGunDamage(item),
       pierce: (weapon.pierce || 0) + state.perks.ricochet,
       explosive: state.perks.explosive + (weapon.explosiveBonus || 0),
       burn: state.perks.burn,
       source: itemId,
       hitEnemies: new Set(),
-      life: itemId === "sniper" ? 1.1 : 0.85,
+      life: (weapon.life || (itemId === "sniper" ? 1.1 : 0.85)) * state.player.range,
     });
   }
 }
@@ -1395,16 +1484,6 @@ function renderLevelRewards() {
     card.addEventListener("click", () => chooseReward(reward));
     ui.rewardGrid.append(card);
   }
-
-  const skip = document.createElement("button");
-  skip.className = "reward skip";
-  skip.innerHTML = `
-    <small>Skip</small>
-    <strong>Skip Reward</strong>
-    <p>Pass on this pick and keep your current build.</p>
-  `;
-  skip.addEventListener("click", skipRewardPick);
-  ui.rewardGrid.append(skip);
 }
 
 function skipRewardPick() {
@@ -1451,16 +1530,6 @@ function renderReplacementChoices(reward) {
     card.addEventListener("click", () => chooseReward(reward, candidate.key));
     ui.rewardGrid.append(card);
   }
-
-  const skip = document.createElement("button");
-  skip.className = "reward skip";
-  skip.innerHTML = `
-    <small>Cancel</small>
-    <strong>Skip Reward</strong>
-    <p>Pass on this pick and keep your current build.</p>
-  `;
-  skip.addEventListener("click", skipRewardPick);
-  ui.rewardGrid.append(skip);
 }
 
 function chooseReward(reward, replacementKey = null) {
@@ -1500,10 +1569,12 @@ function update(dt, now) {
   const size = worldSize();
   let dx = 0;
   let dy = 0;
-  if (keys.has("w")) dy -= 1;
-  if (keys.has("s")) dy += 1;
-  if (keys.has("a")) dx -= 1;
-  if (keys.has("d")) dx += 1;
+  if (!state.settings.afkMode) {
+    if (keys.has("w")) dy -= 1;
+    if (keys.has("s")) dy += 1;
+    if (keys.has("a")) dx -= 1;
+    if (keys.has("d")) dx += 1;
+  }
   const mag = Math.hypot(dx, dy) || 1;
   const playerSpeed = getPlayerSpeed();
   state.player.x = clamp(state.player.x + (dx / mag) * playerSpeed * dt, 20, size.width - 20);
@@ -2055,6 +2126,48 @@ function drawItemIcon(id, x, y, size, level = 0) {
       ctx.lineTo(half * 0.58, i * half * 0.18);
       ctx.stroke();
     }
+  } else if (id === "assault") {
+    ctx.fillStyle = "#72c7ff";
+    ctx.fillRect(-half * 0.62, -half * 0.15, half * 0.95, half * 0.3);
+    ctx.fillStyle = "#f3f6f4";
+    ctx.fillRect(-half * 0.18, half * 0.1, half * 0.2, half * 0.42);
+    ctx.strokeStyle = "#ffd166";
+    ctx.beginPath();
+    ctx.moveTo(half * 0.32, 0);
+    ctx.lineTo(half * 0.72, 0);
+    ctx.stroke();
+  } else if (id === "repeater") {
+    ctx.strokeStyle = "#7cf0b2";
+    for (let i = -1; i <= 1; i += 1) {
+      ctx.beginPath();
+      ctx.moveTo(-half * 0.64, i * half * 0.15);
+      ctx.lineTo(half * 0.7, i * half * 0.15);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#f3f6f4";
+    ctx.fillRect(-half * 0.52, half * 0.22, half * 0.32, half * 0.18);
+  } else if (id === "marksman") {
+    ctx.strokeStyle = "#ffd166";
+    ctx.beginPath();
+    ctx.moveTo(-half * 0.72, 0);
+    ctx.lineTo(half * 0.74, 0);
+    ctx.moveTo(-half * 0.38, half * 0.2);
+    ctx.lineTo(half * 0.05, half * 0.2);
+    ctx.moveTo(half * 0.18, -half * 0.22);
+    ctx.lineTo(half * 0.46, -half * 0.22);
+    ctx.stroke();
+  } else if (id === "scatterLaser") {
+    ctx.strokeStyle = "#e875ff";
+    for (let i = -1; i <= 1; i += 1) {
+      ctx.beginPath();
+      ctx.moveTo(-half * 0.58, 0);
+      ctx.lineTo(half * 0.66, i * half * 0.28);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#72c7ff";
+    ctx.beginPath();
+    ctx.arc(-half * 0.52, 0, half * 0.18, 0, Math.PI * 2);
+    ctx.fill();
   } else if (id === "cannon") {
     ctx.fillStyle = "#ff8a8f";
     ctx.beginPath();
@@ -2376,13 +2489,15 @@ function canAffordAnyShopUpgrade() {
 }
 
 function maybeAutoStartWave() {
-  if (!state.settings.autoStartWhenBroke || !state.running || !state.pausedForShop) return;
-  if (canAffordAnyShopUpgrade()) return;
+  if (!state.running || !state.pausedForShop) return;
+  const shouldAutoStart = () =>
+    state.settings.afkMode || (state.settings.autoStartWhenBroke && !canAffordAnyShopUpgrade());
+  if (!shouldAutoStart()) return;
   window.setTimeout(() => {
-    if (state.settings.autoStartWhenBroke && state.running && state.pausedForShop && !canAffordAnyShopUpgrade()) {
+    if (state.running && state.pausedForShop && shouldAutoStart()) {
       beginWave();
     }
-  }, 450);
+  }, state.settings.afkMode ? 900 : 450);
 }
 
 function renderShop() {
@@ -2502,6 +2617,12 @@ ui.settingsToggle.addEventListener("click", () => {
 });
 ui.autoStartBroke.addEventListener("change", () => {
   state.settings.autoStartWhenBroke = ui.autoStartBroke.checked;
+  maybeAutoStartWave();
+});
+ui.afkMode.addEventListener("change", () => {
+  state.settings.afkMode = ui.afkMode.checked;
+  keys.clear();
+  mouse.down = false;
   maybeAutoStartWave();
 });
 ui.autoCollectPowerups.addEventListener("change", () => {
